@@ -33,6 +33,9 @@ def download(url: str, work: Path) -> Path:
         "-f", "bv*[height<=1080]+ba/b[height<=1080]/b",
         "--merge-output-format", "mp4",
         "-o", str(out),
+        # YouTube JS challenge: use deno and fetch the solver script if missing
+        "--js-runtimes", "deno",
+        "--remote-components", "ejs:github",
     ]
     cookies = Path("cookies.txt")
     if cookies.exists():
@@ -120,14 +123,34 @@ def ask_gemini(words: list[dict], n: int, model_name: str) -> list[dict]:
         mx=int(MAX_CLIP_SEC),
         transcript=transcript_for_llm(words),
     )
-    print(f"Asking Gemini ({model_name}) for hook moments...")
-    resp = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json", temperature=0.4
-        ),
-    )
+    # Try the chosen model first, then fall back if Google retired it (404)
+    candidates = [model_name]
+    for fb in ("gemini-3.8-flash", "gemini-flash-latest"):
+        if fb not in candidates:
+            candidates.append(fb)
+
+    resp = None
+    last_err = None
+    for m in candidates:
+        print(f"Asking Gemini ({m}) for hook moments...")
+        try:
+            resp = client.models.generate_content(
+                model=m,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", temperature=0.4
+                ),
+            )
+            break
+        except Exception as ex:  # noqa: BLE001
+            last_err = ex
+            msg = str(ex)
+            if "404" in msg or "NOT_FOUND" in msg:
+                print(f"  {m} not available, trying next model...")
+                continue
+            raise
+    if resp is None:
+        sys.exit(f"No Gemini model worked. Last error: {last_err}")
     data = json.loads(resp.text)
     if isinstance(data, dict):
         data = data.get("clips", [])
@@ -291,7 +314,7 @@ def main():
     ap.add_argument("--n", type=int, default=5, help="Number of clips")
     ap.add_argument("--out", default="out", help="Output folder")
     ap.add_argument("--whisper", default="base", help="tiny/base/small/medium")
-    ap.add_argument("--gemini-model", default="gemini-2.5-flash")
+    ap.add_argument("--gemini-model", default="gemini-3.8-flash")
     args = ap.parse_args()
 
     if not args.url and not args.file:
