@@ -1,0 +1,52 @@
+name: Make Instagram clips
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "YouTube video URL"
+        required: true
+      count:
+        description: "Number of clips"
+        default: "5"
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Deno (JS runtime for YouTube)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install ffmpeg and fonts
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-liberation
+
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Optional YouTube cookies
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then printf '%s' "$YT_COOKIES" > cookies.txt; fi
+
+      - name: Make clips
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VIDEO_URL: ${{ inputs.url }}
+          CLIP_COUNT: ${{ inputs.count }}
+        run: python clip.py "$VIDEO_URL" --n "$CLIP_COUNT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clips
+          path: out/
