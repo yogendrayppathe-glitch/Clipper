@@ -206,9 +206,15 @@ def face_center_x(video: Path, start: float, end: float) -> float | None:
     """Median x-centre (0..1) of the largest face over a few sampled frames."""
     import cv2
 
-    cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
+    try:
+        cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        if cascade.empty():
+            raise RuntimeError("cascade file not loaded")
+    except Exception as ex:  # noqa: BLE001
+        print(f"  (face detection unavailable: {ex}; using centre crop)")
+        return None
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
