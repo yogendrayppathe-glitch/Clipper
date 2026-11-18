@@ -13,7 +13,7 @@ on:
 jobs:
   clip:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Install Deno (JS runtime for YouTube)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
       - name: Install ffmpeg and fonts
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-liberation
@@ -42,7 +47,7 @@ jobs:
         run: python clip.py "$VIDEO_URL" --n "$CLIP_COUNT"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: clips
           path: out/
-          
