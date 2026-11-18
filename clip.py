@@ -52,20 +52,43 @@ def download(url: str, work: Path) -> Path:
 def transcribe(video: Path, model_size: str) -> list[dict]:
     from faster_whisper import WhisperModel
 
-    print(f"Transcribing with Whisper ({model_size})...")
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    segments, info = model.transcribe(
-        str(video), word_timestamps=True, vad_filter=True
+    # Reuse an earlier transcript of the same video if we have one
+    cache = video.with_suffix(".words.json")
+    if cache.exists():
+        print("Using cached transcript.")
+        return json.loads(cache.read_text())
+
+    # Extract small 16 kHz mono audio first: much faster than decoding the video
+    audio = video.with_suffix(".wav")
+    print("Extracting audio...")
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
+         "-vn", "-ac", "1", "-ar", "16000", str(audio)],
+        check=True,
     )
-    print(f"Detected language: {info.language}")
+
+    print(f"Transcribing with Whisper ({model_size})...")
+    model = WhisperModel(
+        model_size, device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 2
+    )
+    segments, info = model.transcribe(
+        str(audio), word_timestamps=True, vad_filter=True, beam_size=1,
+        condition_on_previous_text=False,
+    )
+    print(f"Detected language: {info.language}, length {info.duration / 60:.0f} min")
     words = []
+    last_report = 0.0
     for seg in segments:
+        if seg.end - last_report >= 300:  # progress line every 5 min of audio
+            last_report = seg.end
+            print(f"  transcribed {seg.end / 60:.0f} / {info.duration / 60:.0f} min")
         for w in seg.words or []:
             text = w.word.strip()
             if text:
                 words.append({"w": text, "s": float(w.start), "e": float(w.end)})
     if not words:
         sys.exit("No speech found in the video.")
+    cache.write_text(json.dumps(words))
     return words
 
 
